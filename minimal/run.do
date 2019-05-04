@@ -4,9 +4,8 @@
 vlog design.sv
 vlog tb.sv
 
-vsim top  +UVM_CONFIG_DB_TRACE
+vsim -novopt top  +UVM_CONFIG_DB_TRACE
 set NoQuitOnFinish 1
 onbreak {resume}
 log /* -r
 run -all
-
