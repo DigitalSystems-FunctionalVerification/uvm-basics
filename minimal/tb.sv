@@ -9,6 +9,21 @@ Alexandre Amory
 import uvm_pkg::*;
 `include "uvm_macros.svh"
 
+interface add_sub_if;
+
+  //Control Information
+  bit doAdd;
+  //Payload Information
+  bit [7:0] a;
+  bit [7:0] b;
+  //Analysis Information
+  bit [8:0] result;
+
+  modport DRIVER  (output doAdd,  a,  b);
+  modport MONITOR (input  result);
+  
+endinterface //add_sub_if
+
 //----------------
 // sequence item add_sub_seq_item
 //----------------
@@ -52,7 +67,7 @@ class add_sub_sequence extends uvm_sequence#(add_sub_seq_item);
 
   virtual task body();
     
-    uvm_do(req); // execute 6 steps of handshaking with driver
+    `uvm_do(req); // execute 6 steps of handshaking with driver
 
   endtask //body 
 
@@ -70,6 +85,48 @@ class add_sub_sequencer extends uvm_sequencer#(add_sub_seq_item);
   endfunction //new()
   
 endclass //add_sub_sequencer extends uvm_sequencer
+
+//----------------
+// driver add_sub_driver
+//----------------
+class add_sub_driver extends uvm_driver #(add_sub_seq_item);
+
+  `uvm_component_utils(add_sub_driver);
+
+  virtual interface add_sub_if vif;
+  
+  // Constructor
+  function new(string name, uvm_component parent);
+    super.new(name, parent);
+  endfunction //new()
+
+  // Build phase
+  function void build_phase(uvm_phase phase);
+    super.build_phase(phase);
+    if(!uvm_config_db#(virtual add_sub_if)::get(this, "", "vif", vif))
+      `uvm_fatal("NO_VIF", {"virtual interface must be set for:", get_full_name(), ".vif"});
+  endfunction: build_phase
+
+  virtual task run_phase(uvm_phase phase);
+
+    forever begin
+      seq_item_port.get_next_item(req);
+      drive();
+      seq_item_port.item_done();
+    end
+    
+  endtask
+
+  virtual task drive();
+
+    req.print();
+    // `DRIV_IF.
+    
+  endtask //drive
+  
+
+endclass //add_sub_driver extends uvm_driver
+
 
 
 //----------------
