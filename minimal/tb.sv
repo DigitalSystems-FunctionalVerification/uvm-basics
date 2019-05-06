@@ -87,6 +87,8 @@ class add_sub_sequence extends uvm_sequence#(add_sub_seq_item);
     
     `uvm_do(req); // execute 6 steps of handshaking with driver
 
+    `uvm_info(get_type_name(), $sformatf("%s REQ :\n > Op1 = %d\n > Op2 = %d\n", get_sequence_path(), req.a, req.b), UVM_LOW);
+
   endtask //body 
 
 endclass//add_sub_sequence
@@ -97,6 +99,18 @@ endclass//add_sub_sequence
 class add_sub_sequencer extends uvm_sequencer#(add_sub_seq_item);
 
   `uvm_sequencer_utils(add_sub_sequencer)
+
+  function void build_phase(uvm_phase phase);
+    super.build_phase(phase);
+  endfunction: build_phase
+
+  function void connect_phase(uvm_phase phase);
+    super.connect_phase(phase);
+  endfunction: connect_phase
+
+  task run_phase(uvm_phase phase);
+    super.run_phase(phase);
+  endtask: run_phase
 
   function new(string name, uvm_component parent);
     super.new(name, parent);
@@ -154,16 +168,30 @@ class add_sub_monitor extends uvm_monitor;
 
   `uvm_component_utils(add_sub_monitor);
 
-  virtual add_sub_if vif;
+  virtual add_sub_if                    vif;
   uvm_analysis_port #(add_sub_seq_item) item_collected_port;
-  add_sub_seq_item trans_collected;
+  add_sub_seq_item                      trans_collected;
   
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
     if(!uvm_config_db#(virtual add_sub_if)::get(this, "", "vif", vif))
       `uvm_fatal("NO_VIF", {"Virtual interface must be set for:", get_full_name(),".vif"})
   endfunction : build_phase
+
+  task run_phase(uvm_phase phase);
+    super.run_phase(phase);
+
+    monitor();
+    
+  endtask //run_phase
   
+  virtual task monitor ();
+    forever begin
+      @(posedge vif.clk);
+        $display("Monitoring: ", vif.cb_monitor.result);
+    end
+  endtask //monitor
+
   function new(string name, uvm_component parent);
     super.new(name, parent);
     trans_collected = new();
@@ -179,6 +207,8 @@ class add_sub_agent extends uvm_agent;
 
   `uvm_component_utils(add_sub_agent)
 
+  uvm_analysis_port#(add_sub_seq_item) agent_mon_port;
+
   add_sub_driver    driver;
   add_sub_sequencer sequencer;
   add_sub_monitor   monitor;
@@ -187,22 +217,30 @@ class add_sub_agent extends uvm_agent;
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
 
-    if(get_is_active() == UVM_ACTIVE)begin
+    // active agents have driver
+    if(get_is_active() == UVM_ACTIVE)begin  // monitor active
       driver    = add_sub_driver::type_id::create("driver", this);
       sequencer = add_sub_sequencer::type_id::create("sequencer", this);
     end
 
+    // passive agents have monitor only
+    agent_mon_port = new("agent_mon_port", this);
     monitor = add_sub_monitor::type_id::create("monitor", this);
     
   endfunction
 
   // Connect phase
   function void connect_phase(uvm_phase phase);
+    super.connect_phase(phase);
 
+    // connect driver monitor to sequencer port
     if(get_is_active() == UVM_ACTIVE) begin
       driver.seq_item_port.connect(sequencer.seq_item_export);
     end
     
+    // connect monitor port to agent port
+    monitor.item_collected_port.connect(agent_mon_port);
+
   endfunction
 
   // Constructor
@@ -215,20 +253,31 @@ endclass //add_sub_agent extends uvm_agent
 //----------------
 // scoreboard add_sub_scoreboard
 //----------------
+`uvm_analysis_imp_decl(_add_sub)
 class add_sub_scoreboard extends uvm_scoreboard;
 
   `uvm_component_utils(add_sub_scoreboard);
   //Declare port
-  uvm_analysis_imp#(add_sub_seq_item, add_sub_scoreboard) item_collected_export;
+  // uvm_analysis_imp#(add_sub_seq_item, add_sub_scoreboard) item_collected_export;
+
+  uvm_analysis_export#(add_sub_seq_item)    get_export_add_sub;
+  uvm_tlm_analysis_fifo#(add_sub_seq_item)  get_add_sub;
   
   //Constructor
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
 
-    //Creating
-    item_collected_export = new("item_collected_export", this);
+    // Creating
+    // item_collected_export = new("item_collected_export", this);
 
   endfunction
+
+  function void connect_phase(uvm_phase phase);
+    super.connect_phase(phase);
+
+    get_export_add_sub.connect(get_add_sub.analysis_export);
+
+  endfunction: connect_phase
 
   virtual function void write(add_sub_seq_item pkt);
     $display("SCB:: Packet received:");
@@ -298,13 +347,27 @@ endclass //add_sub_scoreboard extends uvm_scoreboard
 //----------------
 class env extends uvm_env;
 
+  `uvm_component_utils(env);
+
   virtual add_sub_if m_if;
+
+  add_sub_agent       agent;
+  add_sub_scoreboard  scoreboard;
 
   function new(string name, uvm_component parent = null);
     super.new(name, parent);
   endfunction
+
+  function void build_phase(uvm_phase phase);
+    super.build_phase(phase);
+
+    // agent       = add_sub_agent::type_id::create("agent", this);
+    // scoreboard  = add_sub_scoreboard::type_id::create("scoreboard", this);
+    
+  endfunction
   
   function void connect_phase(uvm_phase phase);
+    super.connect_phase(phase);    
     `uvm_info("LABEL", "Started connect phase.", UVM_HIGH);
     // Get the interface from the resource database.
     assert(uvm_resource_db#(virtual add_sub_if)::read_by_name(get_full_name(), "add_sub_if", m_if));
@@ -353,10 +416,11 @@ module top;
 
   initial begin
 
-    env = new("env");
-
     // Put the interface into the resource database.
     uvm_resource_db#(virtual add_sub_if)::set("env", "add_sub_if", duv_if);
+    
+    env = new("env");
+    
     clk = 0;
     run_test();
 
