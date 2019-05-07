@@ -36,11 +36,13 @@ endclass : Seq_Item
 
 interface add_sub_if;
 
-  logic       clk;
   bit         doAdd0;
   bit   [7:0] a0;
   bit   [7:0] b0;
   bit   [7:0] result0;
+
+  modport DRV_PORT (output doAdd0, a0, b0);
+  modport MON_PORT (input result0);
   
 endinterface //add_sub_if
 
@@ -83,7 +85,7 @@ class Driver extends uvm_driver;
 
     int a = 8'h2, b = 8'h3; // applies 2 + 3 as stimuli
 
-    // req.print();
+    req.print();
 
     @(vif.cb);
     vif.cb.a0     = a;    // req.a0;
@@ -103,7 +105,7 @@ endclass : Driver
 class env extends uvm_env;
 
   virtual add_sub_if m_if;
-  // Driver driver;
+  Driver driver;
 
   function new(string name, uvm_component parent = null);
     super.new(name, parent);
@@ -113,9 +115,9 @@ class env extends uvm_env;
     `uvm_info("LABEL", "Started connect phase.", UVM_HIGH);
 
     // Conect driver
-    // if(get_is_active() == UVM_ACTIVE)begin
-    //   driver.seq_item_port.connect(sequencer.seq_item_export);
-    // end
+    if(get_is_active() == UVM_ACTIVE)begin
+      driver.seq_item_port.connect(sequencer.seq_item_export);
+    end
 
     `uvm_info("LABEL", "Finished connect phase.", UVM_HIGH);
   endfunction: connect_phase
