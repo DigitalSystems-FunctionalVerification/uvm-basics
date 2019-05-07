@@ -657,6 +657,6 @@ module top;
   end
    
   initial begin
-    run_test();
+    run_test("add_sub_test");
   end
 endmodule
