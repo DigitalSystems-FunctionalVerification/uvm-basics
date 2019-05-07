@@ -30,6 +30,7 @@ interface add_sub_if(input logic clk, rst);
   //---------------------------------------
   clocking driver_cb @(posedge clk);
     default input #1 output #1;
+
     //Control Information
     output doAdd;
     //Payload Information
@@ -38,8 +39,18 @@ interface add_sub_if(input logic clk, rst);
 
   endclocking  
 
+  //---------------------------------------
+  // monitor clocking block
+  //---------------------------------------
   clocking monitor_cb @(posedge clk);
     default input #1 output #1;
+
+    //Control Information
+    input doAdd;
+    //Payload Information
+    input a;
+    input b;
+
     //Analysis Information
     input result;
 
@@ -86,6 +97,7 @@ class add_sub_seq_item extends uvm_sequence_item;
   `uvm_object_utils_end
   
   function void post_randomize();    
+    $display("Randomized values: doAdd: ", doAdd, "Op1: ", a, "Op2: ", b);
   endfunction
 
   //---------------------------------------
@@ -100,7 +112,6 @@ endclass
 //-------------------------------------------------------------------------
 //						add_sub_sequence
 //-------------------------------------------------------------------------
-
 //=========================================================================
 // add_sub_sequence - random stimulus 
 //=========================================================================
@@ -219,9 +230,9 @@ class add_sub_driver extends uvm_driver #(add_sub_seq_item);
   
 endclass //add_sub_driver extends uvm_driver
 
-//----------------
-// monitor add_sub_monitor
-//----------------
+//-------------------------------------------------------------------------
+//						add_sub_monitor
+//-------------------------------------------------------------------------
 class add_sub_monitor extends uvm_monitor;
 
   `uvm_component_utils(add_sub_monitor);
@@ -256,8 +267,15 @@ class add_sub_monitor extends uvm_monitor;
   
   virtual task monitor ();
     forever begin
+
       @(posedge vif.MONITOR.clk);
-        $display("Monitoring: ", vif.MONITOR.monitor_cb.result);
+        trans_collected.doAdd   = vif.monitor_cb.doAdd;
+        trans_collected.a       = vif.monitor_cb.a;
+        trans_collected.b       = vif.monitor_cb.b;
+        trans_collected.result  = vif.monitor_cb.result;
+
+      item_collected_port.write(trans_collected);
+
     end
   endtask //monitor
 
@@ -281,7 +299,7 @@ class add_sub_agent extends uvm_agent;
 
   `uvm_component_utils(add_sub_agent)
 
-  uvm_analysis_port#(add_sub_seq_item) agent_mon_port;
+  // uvm_analysis_port#(add_sub_seq_item) agent_mon_port;
   //--------------------------------------- 
   // Active agent's components
   //---------------------------------------
@@ -295,8 +313,9 @@ class add_sub_agent extends uvm_agent;
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
 
+    // agent_mon_port = new("agent_mon_port", this);
+
     // passive agents have monitor only
-    agent_mon_port = new("agent_mon_port", this);
     monitor = add_sub_monitor::type_id::create("monitor", this);
     
     //creating driver and sequencer only for ACTIVE agent
@@ -319,11 +338,13 @@ class add_sub_agent extends uvm_agent;
     end
     
     // connect monitor port to agent port
-    monitor.item_collected_port.connect(agent_mon_port);
+    // monitor.item_collected_port.connect(agent_mon_port);
 
   endfunction
 
+  //---------------------------------------  
   // Constructor
+  //---------------------------------------  
   function new(string name, uvm_component parent);
     super.new(name, parent);
   endfunction //new()
@@ -333,37 +354,43 @@ endclass //add_sub_agent extends uvm_agent
 //-------------------------------------------------------------------------
 //						add_sub_scoreboard
 //-------------------------------------------------------------------------
-`uvm_analysis_imp_decl(_add_sub)
+// `uvm_analysis_imp_decl(_add_sub)
 class add_sub_scoreboard extends uvm_scoreboard;
 
   `uvm_component_utils(add_sub_scoreboard);
   //Declare port
   uvm_analysis_imp#(add_sub_seq_item, add_sub_scoreboard) item_collected_export;
 
+  //---------------------------------------
+  // declaring pkt_qu to store the pkt's recived from monitor
+  //---------------------------------------
+  add_sub_seq_item pkt_qu[$];
+
   // uvm_analysis_export#(add_sub_seq_item)    get_export_add_sub;
   // uvm_tlm_analysis_fifo#(add_sub_seq_item)  get_add_sub;
   
-  //Constructor
+  //---------------------------------------
+  // Build phase
+  //---------------------------------------
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
 
     // Creating
-    // item_collected_export = new("item_collected_export", this);
+    item_collected_export = new("item_collected_export", this);
 
   endfunction
 
-  function void connect_phase(uvm_phase phase);
-    super.connect_phase(phase);
-
-    // get_export_add_sub.connect(get_add_sub.analysis_export);
-
-  endfunction: connect_phase
-
+  //---------------------------------------
+  // write task - recives the pkt from monitor and pushes into queue
+  //---------------------------------------
   virtual function void write(add_sub_seq_item pkt);
-    $display("SCB:: Packet received:");
     pkt.print();
-  endfunction
+    pkt_qu.push_back(pkt);
+  endfunction : write
 
+  //---------------------------------------
+  // Constructor
+  //---------------------------------------
   function new(string name, uvm_component parent);
     super.new(name, parent);
   endfunction //new()
@@ -472,12 +499,14 @@ class add_sub_test extends uvm_test;
   // Run phase
   //---------------------------------------
   task run_phase(uvm_phase phase);
+
     phase.raise_objection(this);
       seq.start(env.agent.sequencer);
     phase.drop_objection(this);
     
     //set a drain-time for the environment if desired
     phase.phase_done.set_drain_time(this, 50);
+
   endtask : run_phase
 
   //--------------------------------------- 
